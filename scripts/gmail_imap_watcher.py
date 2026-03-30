@@ -131,22 +131,25 @@ class GmailIMAPWatcher(BaseWatcher):
                     self.logger.debug(f'Skipping already processed: {msg_id_str}')
                     continue
                 
-                # Fetch message headers only (faster)
-                status, msg_data = mail.fetch(msg_id, '(RFC822.HEADER)')
-                
+                # Fetch full message (headers + body)
+                status, msg_data = mail.fetch(msg_id, '(RFC822)')
+
                 if status != 'OK':
                     self.logger.warning(f'Fetch failed for {msg_id_str}')
                     continue
-                
-                # Parse headers
+
+                # Parse full email
                 raw_email = msg_data[0][1]
                 email_message = email.message_from_bytes(raw_email)
-                
+
                 # Extract headers
                 subject = email_message.get('Subject', 'No Subject')
                 from_header = email_message.get('From', 'Unknown')
                 to_header = email_message.get('To', '')
                 date_header = email_message.get('Date', '')
+                
+                # Extract full body
+                body = self._get_email_body(email_message)
                 
                 new_messages.append({
                     'id': msg_id_str,
@@ -154,7 +157,8 @@ class GmailIMAPWatcher(BaseWatcher):
                     'to': to_header,
                     'subject': subject,
                     'date': date_header,
-                    'snippet': self._decode_snippet(email_message)
+                    'snippet': self._decode_snippet(email_message),
+                    'body': body  # Full body content
                 })
             
             return new_messages
@@ -191,8 +195,49 @@ class GmailIMAPWatcher(BaseWatcher):
                     pass
         except:
             pass
-        
+
         return email_message.get('Subject', 'No content')
+    
+    def _get_email_body(self, email_message) -> str:
+        """
+        Extract full text body from email message.
+        Handles multipart and plain text emails.
+        """
+        body = ""
+        
+        try:
+            if email_message.is_multipart():
+                # For multipart emails, find the text/plain part
+                for part in email_message.walk():
+                    content_type = part.get_content_type()
+                    content_disposition = str(part.get_content_disposition())
+                    
+                    # Skip attachments
+                    if 'attachment' in content_disposition:
+                        continue
+                    
+                    if content_type == 'text/plain':
+                        try:
+                            payload = part.get_payload(decode=True)
+                            if payload:
+                                body = payload.decode('utf-8', errors='ignore')
+                                break
+                        except Exception as e:
+                            self.logger.debug(f'Error decoding part: {e}')
+            else:
+                # For plain text emails
+                try:
+                    payload = email_message.get_payload(decode=True)
+                    if payload:
+                        body = payload.decode('utf-8', errors='ignore')
+                except Exception as e:
+                    self.logger.debug(f'Error decoding plain email: {e}')
+                    
+        except Exception as e:
+            self.logger.debug(f'Error extracting body: {e}')
+            body = email_message.get('Subject', 'No content')
+        
+        return body.strip() if body else email_message.get('Subject', 'No content')
     
     def create_action_file(self, message) -> Path:
         """Create action file for a Gmail message."""
@@ -201,14 +246,17 @@ class GmailIMAPWatcher(BaseWatcher):
         if existing:
             self.logger.info(f'Action file already exists for message {message["id"]}')
             return existing[0]
-        
+
         filename = self.generate_filename('EMAIL', message['id'])
         filepath = self.needs_action / filename
-        
+
         # Extract sender name
         from_email = message['from']
         from_name = from_email.split('<')[0].strip() if '<' in from_email else from_email
         
+        # Use full body if available, otherwise use snippet
+        email_body = message.get('body', message.get('snippet', 'Content not available'))
+
         content = f'''---
 type: email
 from: {from_email}
@@ -229,7 +277,7 @@ status: pending
 - **Received:** {message.get('date', datetime.now().isoformat())}
 
 ## Email Content
-{message.get('snippet', 'Content not available')}
+{email_body}
 
 ## Suggested Actions
 - [ ] Read and categorize
@@ -243,9 +291,9 @@ status: pending
 ---
 *Created by Gmail IMAP Watcher - AI Employee v0.2*
 '''
-        
+
         filepath.write_text(content, encoding='utf-8')
-        
+
         # Mark as processed
         self._add_processed_id(message['id'])
         

@@ -74,82 +74,198 @@ class EmailAutoResponder:
     
     def generate_reply(self, email_data: dict) -> str:
         """
-        Generate reply using Qwen Code.
-        In production, this would call Qwen Code API.
-        For now, uses template-based responses.
+        Generate reply using Qwen Code for intelligent contextual responses.
+        Falls back to template-based responses if Qwen Code unavailable.
         """
-        subject = email_data['subject'].lower()
-        content = email_data['content'].lower()
+        subject = email_data['subject']
+        content = email_data['content']
+        from_name = email_data['from_name']
         
-        # Template-based responses (replace with Qwen Code in production)
-        if 'invoice' in subject or 'invoice' in content:
-            return f"""Dear {email_data['from_name']},
+        # Try Qwen Code first for intelligent response
+        try:
+            reply = self._generate_with_qwen(email_data)
+            if reply and len(reply.strip()) > 20:
+                return reply
+        except Exception as e:
+            self.logger.debug(f'Qwen Code not available, using templates: {e}')
+        
+        # Fallback: Smart template-based responses
+        subject_lower = subject.lower()
+        content_lower = content.lower()
+        
+        # Check for specific intents
+        if any(word in subject_lower or word in content_lower for word in ['invoice', 'bill', 'payment', 'receipt']):
+            return f"""Dear {from_name},
 
-Thank you for your email regarding the invoice.
+Thank you for your email regarding the invoice/payment.
 
-I'm processing your request and will send the invoice shortly.
+I have received your request and am processing it. I will send the invoice/receipt shortly.
+
+If you have any urgent questions, please let me know.
 
 Best regards,
 AI Employee"""
-        
-        elif 'hello' in subject or 'hi' in content:
-            return f"""Dear {email_data['from_name']},
 
-Thank you for reaching out!
+        elif any(word in subject_lower or word in content_lower for word in ['meeting', 'schedule', 'appointment', 'call']):
+            return f"""Dear {from_name},
 
-How can I help you today?
+Thank you for your email about scheduling a meeting.
 
-Best regards,
-AI Employee"""
-        
-        elif 'meeting' in subject or 'meeting' in content:
-            return f"""Dear {email_data['from_name']},
+I will check the calendar and get back to you with available time slots within 24 hours.
 
-Thank you for your email about the meeting.
-
-I'll check the schedule and get back to you with available times.
+Please let me know your preferred dates/times if you have any.
 
 Best regards,
 AI Employee"""
-        
+
+        elif any(word in subject_lower or word in content_lower for word in ['question', 'help', 'support', 'issue']):
+            return f"""Dear {from_name},
+
+Thank you for reaching out with your question/concern.
+
+I have received your message and will provide a detailed response shortly.
+
+If this is urgent, please don't hesitate to follow up.
+
+Best regards,
+AI Employee"""
+
+        elif any(word in subject_lower or word in content_lower for word in ['hello', 'hi', 'hey', 'greetings']):
+            # Check if there's actual content beyond greeting
+            if content_lower.strip() and len(content_lower.strip()) > 20:
+                return f"""Dear {from_name},
+
+Thank you for your message!
+
+{self._generate_contextual_reply(content)}
+
+Looking forward to hearing from you.
+
+Best regards,
+AI Employee"""
+            else:
+                return f"""Dear {from_name},
+
+Hello! Great to hear from you.
+
+How can I assist you today? Feel free to share what's on your mind.
+
+Best regards,
+AI Employee"""
+
+        elif any(word in subject_lower or word in content_lower for word in ['project', 'proposal', 'opportunity', 'collaboration']):
+            return f"""Dear {from_name},
+
+Thank you for reaching out regarding this opportunity.
+
+I am reviewing the details and will get back to you with a comprehensive response soon.
+
+Best regards,
+AI Employee"""
+
         else:
-            return f"""Dear {email_data['from_name']},
+            # Generic but professional response
+            return f"""Dear {from_name},
 
 Thank you for your email.
 
-I've received your message and will respond shortly.
+I have received your message and will respond with a detailed reply shortly.
 
 Best regards,
 AI Employee"""
     
-    def send_reply(self, to_email: str, subject: str, body: str, 
-                   original_subject: str = '') -> bool:
+    def _generate_with_qwen(self, email_data: dict) -> str:
+        """
+        Generate intelligent reply using Qwen Code.
+        """
+        import subprocess
+        import json
+        import tempfile
+        
+        prompt = f"""You are an AI Employee assistant. Draft a professional email reply based on:
+
+From: {email_data['from']}
+Subject: {email_data['subject']}
+Content: {email_data['content'] or 'No specific content, just a greeting'}
+
+Write a friendly, professional reply (3-5 sentences). Be helpful and offer assistance.
+Return ONLY the email body text, no explanations."""
+
+        try:
+            # Create a temporary file with the prompt
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+                f.write(prompt)
+                temp_file = f.name
+            
+            # Run Qwen Code
+            claude_cmd = os.getenv('CLAUDE_COMMAND', 'claude')
+            result = subprocess.run(
+                [claude_cmd, '--prompt', prompt],
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            # Cleanup
+            os.unlink(temp_file)
+            
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+                
+        except Exception as e:
+            self.logger.debug(f'Qwen Code generation failed: {e}')
+        
+        return ""
+    
+    def _generate_contextual_reply(self, content: str) -> str:
+        """
+        Generate a contextual reply based on email content.
+        """
+        content_lower = content.lower()
+        
+        if 'how are you' in content_lower:
+            return "I'm doing well, thank you for asking!"
+        elif 'hope you' in content_lower:
+            return "Thank you for your kind words!"
+        elif 'wanted to' in content_lower or 'just wanted' in content_lower:
+            return "I appreciate you reaching out."
+        
+        return "I appreciate you taking the time to write."
+    
+    def send_reply(self, to_email: str, body: str, original_subject: str = '',
+                   original_content: str = '') -> bool:
         """
         Send email reply via Gmail SMTP.
+        Includes original email as quote below the reply.
         """
         if not self.email or not self.app_password:
             self.logger.error('Gmail credentials not configured')
             return False
-        
+
         try:
             # Create message
             msg = MIMEMultipart()
             msg['From'] = self.email
             msg['To'] = to_email
-            msg['Subject'] = f'Re: {original_subject}' if original_subject else subject
+            msg['Subject'] = f'Re: {original_subject}' if original_subject else 'Re: No Subject'
+
+            # Compose full body with original email quoted
+            full_body = body
+            if original_content:
+                full_body += f"\n\n--- Original Message ---\n\n{original_content}"
             
             # Add body
-            msg.attach(MIMEText(body, 'plain'))
-            
+            msg.attach(MIMEText(full_body, 'plain'))
+
             # Send via SMTP
             server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=10)
             server.login(self.email, self.app_password)
             server.send_message(msg)
             server.quit()
-            
+
             self.logger.info(f'Reply sent to {to_email}')
             return True
-            
+
         except Exception as e:
             self.logger.error(f'Failed to send reply: {e}')
             return False
@@ -189,9 +305,10 @@ AI Employee"""
             if auto_send:
                 self.logger.info('Sending reply...')
                 success = self.send_reply(
-                    to_email, 
-                    reply, 
-                    email_data['subject']
+                    to_email,
+                    reply,
+                    email_data['subject'],
+                    email_data['content']
                 )
                 result['reply_sent'] = success
                 result['status'] = 'sent' if success else 'failed'
@@ -353,7 +470,7 @@ status: draft
 
             # Send email
             self.logger.info(f'Sending to {to_email}...')
-            success = self.send_reply(to_email, body, subject)
+            success = self.send_reply(to_email, body, subject, '')
 
             if success:
                 result['sent'] = True

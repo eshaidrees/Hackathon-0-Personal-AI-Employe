@@ -1,19 +1,66 @@
-# AI Employee - Silver Tier Dependencies
+# AI Employee - Gold Tier Dependencies
 # Install with: pip install -r requirements.txt
 
-# Core dependencies
+# ===========================================
+# CORE DEPENDENCIES
+# ===========================================
 python-dotenv>=1.0.0
+requests>=2.31.0
 
-# Gmail API
+# ===========================================
+# GMAIL API
+# ===========================================
 google-api-python-client>=2.100.0
 google-auth-httplib2>=0.1.0
 google-auth-oauthlib>=1.1.0
 
-# Browser automation (LinkedIn Watcher)
+# ===========================================
+# BROWSER AUTOMATION
+# ===========================================
+# For LinkedIn (no official API for personal accounts)
 playwright>=1.40.0
 
-# File system watching
+# ===========================================
+# FILE SYSTEM WATCHING
+# ===========================================
 watchdog>=3.0.0
 
-# MCP Server framework (optional)
-# mcp>=0.1.0
+# ===========================================
+# DATA VALIDATION
+# ===========================================
+jsonschema>=4.0.0
+
+# ===========================================
+# ADDITIONAL UTILITIES
+# ===========================================
+# For date/time handling
+python-dateutil>=2.8.0
+
+# For better logging
+colorama>=0.4.6
+
+# For retry logic
+tenacity>=8.0.0
+
+# ===========================================
+# SOCIAL MEDIA API SDKs (Optional but Recommended)
+# ===========================================
+# Facebook/Meta Graph API (official)
+# Note: We use direct requests to Graph API, but facebook-business can be installed
+# facebook-business>=19.0.0
+
+# Twitter API v2 - OAuth support
+requests-oauthlib>=1.3.0
+oauthlib>=3.2.0
+
+# Twitter API v2 (official SDK - optional)
+# tweepy>=4.14.0
+
+# LinkedIn API (unofficial but reliable)
+# linkedin-api-client>=0.1.0
+
+# ===========================================
+# ODOO INTEGRATION
+# ===========================================
+# Note: xmlrpc-client is built-in to Python
+# This is just a placeholder for documentation
