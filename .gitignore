@@ -61,6 +61,14 @@ token.pickle
 session.json
 *.session
 
+# Browser sessions (SENSITIVE - contains cookies, login data)
+linkedin_session/
+whatsapp_session/
+chrome_session/
+browser_session/
+*.session/
+Session/
+
 # MCP Server configs with secrets
 mcp.json
 .mcp/
